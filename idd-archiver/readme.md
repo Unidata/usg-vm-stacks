@@ -1,19 +1,20 @@
 - [Creating an IDD Archiver VM on Jetstream](#h-046F9FE1)
   - [Create an IDD Archiver VM on Jetstream](#h-304AA966)
-  - [Clone the science-gateway and TdsConfig Repositories](#h-00BE67D7)
   - [Prepare IDD Archiver for Docker and docker-compose](#h-FF66923F)
+  - [Ensure /data Volume Availability Upon Machine Restart](#h-3CE81256)
+  - [/data/ldm/queues Directory](#h-2428D469)
+  - [/data/ldm/logs Directory](#h-57DC40FF)
+  - [Sharing /data directory via NFS](#h-358A22F4)
+    - [Open NFS Related Ports](#h-1AFDC551)
+    - [Ensure `firewalld` is Inactive](#h-89622EDA)
+- [Configure and Run LDM and TDM Containers](#h-E5B5AF70)
+  - [Clone the science-gateway and TdsConfig Repositories](#h-00BE67D7)
   - [~/etc Directory](#h-B5A9CA86)
     - [~/etc/ldmd.conf](#h-A598B286)
     - [~/etc/registry.xml](#h-27A09559)
   - [Data Scouring](#h-1CA59DB7)
   - [pqacts](#h-4BDFE35D)
   - [Edit ldmfile.sh](#h-D2BD1E3A)
-  - [/data/ldm/queues Directory](#h-2428D469)
-  - [/data/ldm/logs Directory](#h-57DC40FF)
-  - [Ensure /data Volume Availability Upon Machine Restart](#h-3CE81256)
-  - [Sharing /data directory via NFS](#h-358A22F4)
-    - [Open NFS Related Ports](#h-1AFDC551)
-    - [Ensure `firewalld` is Inactive](#h-89622EDA)
   - [THREDDS Data Manager (TDM)](#h-DB469C8D)
     - [TDM Logging Directory](#h-865C1FF8)
       - [Running the TDM Out the TDM Log Directory](#h-94768FE5)
@@ -27,7 +28,6 @@
   - [Start the IDD Archiver Node](#h-4167D52C)
 
 
-
 <a id="h-046F9FE1"></a>
 
 # Creating an IDD Archiver VM on Jetstream
@@ -39,6 +39,115 @@
 
 Create an `m1.medium` VM with the [Jetstream OpenStack API](../../openstack/readme.md). [Create and attach](../../openstack/readme.md) a 5TB `/data` volume to that VM. Work with Unidata system administrator staff to have this VM's IP address resolve to `idd-archiver.scigw.unidata.ucar.edu`.
 
+
+<a id="h-FF66923F"></a>
+
+## Prepare IDD Archiver for Docker and docker-compose
+
+With the help of Docker and `docker-compose`, starting a VM containing an IDD archiver is relatively simple. [See here to install Docker and docker-compose](../../vm-init-readme.md).
+
+
+<a id="h-3CE81256"></a>
+
+## Ensure /data Volume Availability Upon Machine Restart
+
+[Ensure the `/data` volume availability upon machine restart](../../openstack/readme.md).
+
+<a id="h-2428D469"></a>
+
+## /data/ldm/queues Directory
+
+This `queues` directory will contain the LDM queue file.
+
+```shell
+mkdir -p /data/ldm/queues
+```
+
+
+<a id="h-57DC40FF"></a>
+
+## /data/ldm/logs Directory
+
+Create the LDM `logs` directory.
+
+```shell
+mkdir -p /data/ldm/logs/
+```
+
+
+
+<a id="h-358A22F4"></a>
+
+## Sharing /data directory via NFS
+
+Because volume multi-attach is not yet available via OpenStack, we will want to share the `/data` directory via NFS to client VMs over the `10.0` network by adding and an entry to the `/etc/exports` file. For example, here we are sharing the `/data` directory to the VM at `10.0.0.18`.
+
+```shell
+echo /data		10.0.0.18(rw,sync,no_subtree_check) | sudo tee \
+    --append /etc/exports > /dev/null
+echo /data		10.0.0.15(rw,sync,no_subtree_check) | sudo tee \
+    --append /etc/exports > /dev/null
+echo /data		10.0.0.11(rw,sync,no_subtree_check) | sudo tee \
+    --append /etc/exports > /dev/null
+```
+
+Now start NFS:
+
+```shell
+sudo exportfs -a
+sudo service nfs-kernel-server start
+```
+
+Finally, ensure NFS will be available when the VM starts:
+
+```shell
+sudo update-rc.d nfs-kernel-server defaults
+```
+
+
+<a id="h-1AFDC551"></a>
+
+### Open NFS Related Ports
+
+Via OpenStack also open NFS related ports: `111`, `1110`, `2049`, `4045`. If it does not exist already, create the `local-nfs` security group with the `secgroup.sh` convenience script and additional `openstack` commands.
+
+```shell
+  # Will create a "local-nfs" security group.
+secgroup.sh  -p 111 -n local-nfs --remote-ip 10.0.0.0/24
+openstack security group rule create local-nfs --protocol tcp --dst-port 1110:1110 --remote-ip 10.0.0.0/24
+openstack security group rule create local-nfs --protocol tcp --dst-port 2049:2049 --remote-ip 10.0.0.0/24
+openstack security group rule create local-nfs --protocol tcp --dst-port 4045:4045 --remote-ip 10.0.0.0/24
+```
+
+Finally, attach the `local-nfs` security group to the newly created VM. The VM ID can be obtained with `openstack server list`.
+
+```shell
+openstack server add security group <VM name or ID> local-nfs
+```
+
+
+<a id="h-89622EDA"></a>
+
+### Ensure `firewalld` is Inactive
+
+The `firewalld` service is enabled by default in new RockyLinux VM instances on JetStream2. This would block other VMs from properly mounting the NFS volume. To ensure VMs can access the idd-archiver's data while maintaining security, first stop `firewalld` and prevent it from restarting on reboot:
+
+```shell
+# Ensure firewalld is running
+systemctl | grep -i "firewalld"
+
+# Stop and disable the service
+sudo systemctl stop firewalld
+sudo systemctl disable firewalld
+sudo systemctl mask firewalld
+```
+
+Next, work with Unidata sys-admin staff to secure the VM through `iptables` rules.
+
+
+<a id="h-E5B5AF70"></a>
+
+# Configure and Run LDM and TDM Containers
 
 <a id="h-00BE67D7"></a>
 
@@ -55,13 +164,6 @@ In addition, we will employ the `Unidata/TdsConfig` repository to obtain our LDM
 ```shell
 git clone https://github.com/Unidata/TdsConfig ~/TdsConfig
 ```
-
-
-<a id="h-FF66923F"></a>
-
-## Prepare IDD Archiver for Docker and docker-compose
-
-With the help of Docker and `docker-compose`, starting a VM containing an IDD archiver is relatively simple. [See here to install Docker and docker-compose](../../vm-init-readme.md).
 
 
 <a id="h-B5A9CA86"></a>
@@ -160,104 +262,6 @@ Also ensure that `ldmfile.sh` is executable.
 ```shell
 chmod +x ~/etc/TDS/util/ldmfile.sh
 ```
-
-
-<a id="h-2428D469"></a>
-
-## /data/ldm/queues Directory
-
-This `queues` directory will contain the LDM queue file.
-
-```shell
-mkdir -p /data/ldm/queues
-```
-
-
-<a id="h-57DC40FF"></a>
-
-## /data/ldm/logs Directory
-
-Create the LDM `logs` directory.
-
-```shell
-mkdir -p /data/ldm/logs/
-```
-
-
-<a id="h-3CE81256"></a>
-
-## Ensure /data Volume Availability Upon Machine Restart
-
-[Ensure the `/data` volume availability upon machine restart](../../openstack/readme.md).
-
-
-<a id="h-358A22F4"></a>
-
-## Sharing /data directory via NFS
-
-Because volume multi-attach is not yet available via OpenStack, we will want to share the `/data` directory via NFS to client VMs over the `10.0` network by adding and an entry to the `/etc/exports` file. For example, here we are sharing the `/data` directory to the VM at `10.0.0.18`.
-
-```shell
-echo /data		10.0.0.18(rw,sync,no_subtree_check) | sudo tee \
-    --append /etc/exports > /dev/null
-echo /data		10.0.0.15(rw,sync,no_subtree_check) | sudo tee \
-    --append /etc/exports > /dev/null
-echo /data		10.0.0.11(rw,sync,no_subtree_check) | sudo tee \
-    --append /etc/exports > /dev/null
-```
-
-Now start NFS:
-
-```shell
-sudo exportfs -a
-sudo service nfs-kernel-server start
-```
-
-Finally, ensure NFS will be available when the VM starts:
-
-```shell
-sudo update-rc.d nfs-kernel-server defaults
-```
-
-
-<a id="h-1AFDC551"></a>
-
-### Open NFS Related Ports
-
-Via OpenStack also open NFS related ports: `111`, `1110`, `2049`, `4045`. If it does not exist already, create the `local-nfs` security group with the `secgroup.sh` convenience script and additional `openstack` commands.
-
-```shell
-  # Will create a "local-nfs" security group.
-secgroup.sh  -p 111 -n local-nfs --remote-ip 10.0.0.0/24
-openstack security group rule create local-nfs --protocol tcp --dst-port 1110:1110 --remote-ip 10.0.0.0/24
-openstack security group rule create local-nfs --protocol tcp --dst-port 2049:2049 --remote-ip 10.0.0.0/24
-openstack security group rule create local-nfs --protocol tcp --dst-port 4045:4045 --remote-ip 10.0.0.0/24
-```
-
-Finally, attach the `local-nfs` security group to the newly created VM. The VM ID can be obtained with `openstack server list`.
-
-```shell
-openstack server add security group <VM name or ID> local-nfs
-```
-
-
-<a id="h-89622EDA"></a>
-
-### Ensure `firewalld` is Inactive
-
-The `firewalld` service is enabled by default in new RockyLinux VM instances on JetStream2. This would block other VMs from properly mounting the NFS volume. To ensure VMs can access the idd-archiver's data while maintaining security, first stop `firewalld` and prevent it from restarting on reboot:
-
-```shell
-# Ensure firewalld is running
-systemctl | grep -i "firewalld"
-
-# Stop and disable the service
-sudo systemctl stop firewalld
-sudo systemctl disable firewalld
-sudo systemctl mask firewalld
-```
-
-Next, work with Unidata sys-admin staff to secure the VM through `iptables` rules.
 
 
 <a id="h-DB469C8D"></a>

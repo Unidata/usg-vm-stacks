@@ -1,0 +1,14 @@
+services:
+  icechunk:
+    image: unidata/ldm-docker:latest
+    container_name: icechunk-ldm
+    volumes:
+      - ./etc:/home/ldm/etc
+      - ./cron:/var/spool/cron
+    networks:
+      - idd-archiver
+
+networks:
+  idd-archiver:
+    name: idd-archiver_default
+    external: true

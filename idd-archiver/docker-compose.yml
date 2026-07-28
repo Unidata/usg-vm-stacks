@@ -8,7 +8,7 @@ services:
   ldm:
     image: unidata/ldm-docker:latest
     container_name: ldm
-    # restart: always
+    restart: always
     volumes:
       - ~/etc/:/home/ldm/etc/
       - /data/:/home/ldm/var/data/
@@ -31,7 +31,7 @@ services:
   tdm:
     image: unidata/tdm-docker:5.8
     container_name: tdm
-    # restart: always
+    restart: always
     volumes:
         - /data/:/data/
         - ~/tdsconfig/:/usr/local/tomcat/content/thredds/

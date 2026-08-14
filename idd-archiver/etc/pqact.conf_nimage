@@ -21,4 +21,4 @@
 
 NIMAGE	^(.*)/GOES(1.)/(Products)/(.*)/((CONUS|FullDisk|Mesoscale-1|Mesoscale-2|PuertoRico|Alaska|Hawaii).*)/(20......)/(OR_...-L[23].*.nc)
 	PIPE	-close
-	/home/ldm/etc/util/L2ProdFile.sh \1 GRB\2 \3 \4 \5 \7 \8 logs/L2ProdFile.log
+	/home/ldm/etc/util/L2ProdFile.sh \1 GRB\2 \3 \4 \5 \7 \8 var/logs/L2ProdFile.log

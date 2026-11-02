@@ -1,0 +1,54 @@
+version: '3'
+
+services:
+  caddy:
+    image: caddy:2
+    container_name: caddy
+    restart: always
+
+    ports:
+      - "80:80"
+      - "443:443"
+
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+
+    depends_on:
+      - thredds-production
+
+  thredds-production:
+    image: unidata/thredds-docker:5.10
+    container_name: thredds
+    restart: always
+
+    expose:
+      - "8080"
+
+    volumes:
+      # Tomcat and TDS logs.
+      - /logs/tds-tomcat:/usr/local/tomcat/logs
+      - /logs/tds:/usr/local/tomcat/content/thredds/logs
+
+      # Site-specific Tomcat/TDS configuration.
+      - ./files/tomcat-users.xml:/usr/local/tomcat/conf/tomcat-users.xml:ro
+      - ~/tdsconfig:/usr/local/tomcat/content/thredds
+
+      # Site-specific web resources.
+      - ./files/index.jsp:/usr/local/tomcat/webapps/ROOT/index.jsp:ro
+      - ./files/robots.txt:/usr/local/tomcat/webapps/ROOT/robots.txt:ro
+
+      # Site-specific Tomcat configuration.
+      - ./files/server.xml:/usr/local/tomcat/conf/server.xml:ro
+      - ./files/web.xml:/usr/local/tomcat/conf/web.xml:ro
+
+      # Data served by TDS.
+      - /data:/data
+
+    env_file:
+      - "compose${THREDDS_COMPOSE_ENV_LOCAL}.env"
+
+volumes:
+  caddy_data:
+  caddy_config:

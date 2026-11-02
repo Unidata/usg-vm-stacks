@@ -1,0 +1,3 @@
+tds.scigw.unidata.ucar.edu {
+	reverse_proxy thredds-production:8080
+}
